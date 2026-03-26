@@ -1,4 +1,31 @@
-;; emacsctl.el --- Emacs control interface -*- lexical-binding: t -*-
+;;; emacsctl.el --- Emacs Control Interface  -*- lexical-binding: t -*-
+
+;; Copyright (C) 2025-2026 The Calendrical System
+
+;; Author: The Calendrical System <us@calsys.org>
+;; Version: 0.1
+;; Keywords: comm, convenience
+;; URL: https://github.com/calsys456/emacs-control.el
+;; Package-Requires: ((emacs "29.1"))
+
+;; This program is free software; you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
+
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+
+;; You should have received a copy of the GNU General Public License
+;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+;;; Commentary:
+
+;; Emacs Control Interface Suitable for AI Agents - Emacs side.
+
+;;; Code:
 
 (defcustom emacsctl-query-surrounding-lines 2
   "Number of lines to include in the surrounding when query/grep."
@@ -71,12 +98,26 @@ Longer strings will be truncated and have their properties removed."
   :type 'integer
   :group 'emacsctl)
 
+(defcustom emacsctl-eval-prohibit-symbols '()
+  "List of symbols that are prohibited in eval queries for security."
+  :type 'integer
+  :group 'emacsctl)
+
+(defcustom emacsctl-default-port 33865
+  "Default port for emacsctl server to listen on."
+  :type 'integer
+  :group 'emacsctl)
+
+;;;###autoload
 (define-minor-mode emacsctl-supervise-mode
-  "Supervise (follow) every changes made by emacsctl."
+  "Supervise (follow) insertion/replacement made by emacsctl.
+
+Not that useful tho :("
   :global t
   :lighter nil)
 
-(defvar emacsctl--last-queried-windows nil)
+
+;;; Utils
 
 (cl-defstruct emacsctl-pprint-item
   "Items that shall be printed with custom level & length."
@@ -144,6 +185,11 @@ Longer strings will be truncated and have their properties removed."
                              :content content))
 
 (defun emacsctl--get-line (orig-point orig-mark &optional no-truncate-p)
+  "Get current line.
+
+Insert markers for ORIG-POINT and ORIG-MARK.
+
+Skip truncation if NO-TRUNCATE-P is true."
   (let* ((bol (pos-bol))
          (eol (pos-eol))
          (is-bof (= bol (point-min)))
@@ -304,7 +350,9 @@ Longer strings will be truncated and have their properties removed."
     'EOF))
 
 (defun emacsctl--fuzzy-match (target source)
-  "Fuzzy match TARGET in SOURCE."
+  "Fuzzy match TARGET in SOURCE.
+
+Copied from our lw-plugins."
   (cl-loop with start = -1
            for c across target
            if (> (1+ start) (length source)) do (cl-return)
@@ -415,7 +463,23 @@ Copied from `marginalia--function-args', really thanks."
             (when-let* ((suggest (emacsctl--fuzzy-match-buffer-names buffer-name)))
               (list :suggest-candidates (take emacsctl-max-suggest-candidate-number suggest)))))
 
+(defun emacsctl--search-nearest (point text)
+  (save-excursion
+    (goto-char (point-min))
+    (let ((case-fold-search nil)
+          (len (length text)))
+      (cdar (sort (cl-loop for end = (search-forward text nil t)
+                           while end collect (cons (abs (- point (- end (round len 2))))
+                                                   (- end len)))
+                  :key #'car)))))
+
+
+;;; Point & Mark
+
 (defun emacsctl-point-info (&optional surrounding)
+  "Get brief information of current point.
+
+SURROUNDING specifies the number of surrounding lines to include."
   (cl-list* :position (point)
             :line (line-number-at-pos)
             :column (current-column)
@@ -423,14 +487,19 @@ Copied from `marginalia--function-args', really thanks."
             :char-before (emacsctl--char-before)
             :char-after (emacsctl--char-after)
             (if mark-active
-                (list :active-region (emacsctl--query-lines
-                                      :start-pos (min (point) (mark))
-                                      :end-pos (max (point) (mark))))
+                (list :active-region (let ((emacsctl-query-surrounding-lines
+                                            (or surrounding emacsctl-query-surrounding-lines)))
+                                       (emacsctl--query-lines
+                                        :start-pos (min (point) (mark))
+                                        :end-pos (max (point) (mark)))))
               (list :surrounding (let ((emacsctl-query-surrounding-lines
                                         (or surrounding emacsctl-query-surrounding-lines)))
                                    (emacsctl--query-lines))))))
 
 (defun emacsctl-mark-info (&optional surrounding)
+  "Get brief information of current mark.
+
+SURROUNDING specifies the number of surrounding lines to include."
   (let ((mark (mark)))
     (if mark
         (cl-list* :position mark
@@ -442,15 +511,21 @@ Copied from `marginalia--function-args', really thanks."
                   :char-before (emacsctl--char-before)
                   :char-after (emacsctl--char-after)
                   (if mark-active
-                      (list :active-region (emacsctl--query-lines
-                                            :start-pos (min (point) mark)
-                                            :end-pos (max (point) mark)))
+                      (list :active-region (let ((emacsctl-query-surrounding-lines
+                                                  (or surrounding emacsctl-query-surrounding-lines)))
+                                             (emacsctl--query-lines
+                                              :start-pos (min (point) mark)
+                                              :end-pos (max (point) mark))))
                     (list :surrounding (let ((emacsctl-query-surrounding-lines
                                               (or surrounding emacsctl-query-surrounding-lines)))
                                          (emacsctl--query-lines :markp t)))))
       (list :error "No mark set yet."))))
 
+
+;;; Buffer
+
 (defun emacsctl-buffer-info (&optional buffer)
+  "Get brief information of (or BUFFER (current-buffer))."
   (let ((buffer (if buffer (get-buffer buffer) (current-buffer))))
     (if buffer
         (with-current-buffer buffer
@@ -467,8 +542,10 @@ Copied from `marginalia--function-args', really thanks."
             (if (and file-name (local-variable-p 'buffer-file-coding-system))
                 (setq res (nconc res (list :coding-system buffer-file-coding-system))))
             (setq res (nconc res (cl-list* :major-mode major-mode
-                                           :local-minor-modes (emacsctl--make-std-pprint-item local-minor-modes) ; They can exceed 50...
-                                           :global-minor-modes (emacsctl--make-std-pprint-item global-minor-modes)
+                                           :local-minor-modes (make-emacsctl-pprint-item :length 5
+                                                                                         :content local-minor-modes)
+                                           :global-minor-modes (make-emacsctl-pprint-item :length 5
+                                                                                          :content global-minor-modes)
                                            :point (cl-list* :position (point)
                                                             :line (line-number-at-pos)
                                                             :column (current-column)
@@ -485,6 +562,11 @@ Copied from `marginalia--function-args', really thanks."
       (emacsctl--buffer-not-found-error buffer))))
 
 (cl-defun emacsctl-buffer-imenu (&optional buffer)
+  "Get imenu index of (or BUFFER (current-buffer)).
+
+For Lisp buffers, it will return top-level forms but not imenu, since
+imenu sometimes lack information (it will not return your `use-package'
+huh)"
   (let ((buffer (if buffer
                     (ignore-errors (get-buffer buffer))
                   (current-buffer))))
@@ -496,7 +578,57 @@ Copied from `marginalia--function-args', really thanks."
               :imenu (emacsctl--scan-imenu buffer))
       (emacsctl--buffer-not-found-error buffer))))
 
+(cl-defun emacsctl-grep (pattern &optional buffer)
+  "Search for PATTERN in (or BUFFER (current-buffer)).
+
+Return brief informations for each match."
+  (when (not (stringp pattern))
+    (setq pattern (format "%s" pattern)))
+  (cond ((and buffer (null (get-buffer buffer)))
+         (cl-list* :error (format "Buffer %s not found." buffer)
+                   (when-let* ((suggest (emacsctl--fuzzy-match-buffer-names buffer)))
+                     (list :suggest-candidates (take emacsctl-max-suggest-candidate-number suggest)))))
+        (t (with-current-buffer (if buffer (get-buffer buffer) (current-buffer))
+             (save-excursion
+               (let* ((case-fold-search nil))
+                 (goto-char (point-min))
+                 (let ((lst (save-match-data
+                              (cl-loop while (re-search-forward pattern nil t)
+                                       collect `(
+                                                 :start-position ,(match-beginning 0)
+                                                 :end-position ,(match-end 0)
+                                                 ,@(let ((start-line (line-number-at-pos (match-beginning 0)))
+                                                         (end-line (line-number-at-pos (match-end 0))))
+                                                     (if (= start-line end-line)
+                                                         (list :line start-line)
+                                                       (list :start-line start-line
+                                                             :end-line end-line)))
+                                                 :matched ,(substring-no-properties (match-string 0))
+                                                 :surrounding ,(emacsctl--query-lines :start-pos (match-beginning 0)
+                                                                                      :end-pos (match-end 0)
+                                                                                      :show-point-p nil
+                                                                                      :show-mark-p nil
+                                                                                      :no-truncate-p t))))))
+                   `(
+                     :matched-number ,(length lst)
+                     ,@(when (> (length lst) emacsctl-too-many-grep-result-limit)
+                         (list :returned-number emacsctl-too-many-grep-result-limit
+                               :hint (format "Too many matches, only showing first %d. Please refine your query."
+                                             emacsctl-too-many-grep-result-limit)))
+                     :matches ,(take emacsctl-too-many-grep-result-limit lst)))))))))
+
 (cl-defun emacsctl-read-buffer (&key buffer start-line end-line line start-position end-position position surrounding full-p)
+  "Read buffer content.
+
+BUFFER defaults to current buffer.
+
+Read from START-LINE to END-LINE, or from START-POSITION to
+END-POSITION, or the content surrounding POSITION or LINE, with
+SURROUNDING lines.
+
+If none of them provided, read the whole buffer.
+
+Use FULL-P for no-truncate."
   (let ((buffer (if buffer
                     (ignore-errors (get-buffer buffer))
                   (current-buffer))))
@@ -556,6 +688,9 @@ Copied from `marginalia--function-args', really thanks."
       (emacsctl--buffer-not-found-error buffer))))
 
 (defun emacsctl-buffer-list (&optional match)
+  "Get buffer list.
+
+If MATCH provided, fuzzy-match buffers."
   (let ((buffers (cl-remove-if
                   (lambda (buf) (string-prefix-p " " (buffer-name buf)))
                   (if match
@@ -583,6 +718,9 @@ Copied from `marginalia--function-args', really thanks."
                         (take emacsctl-too-many-buffers-limit buffers)))))
 
 (defun emacsctl-hidden-buffer-list (&optional match)
+  "Get hidden buffer list.
+
+If MATCH provided, fuzzy-match buffers."
   (let ((buffers (cl-remove-if-not
                   (lambda (buf) (string-prefix-p " " (buffer-name buf)))
                   (if match
@@ -609,7 +747,13 @@ Copied from `marginalia--function-args', really thanks."
                               res)))
                         (take emacsctl-too-many-buffers-limit buffers)))))
 
+
+;;; Window
+
+(defvar emacsctl--last-queried-windows nil)
+
 (defun emacsctl-query-window ()
+  "Get a brief view of window layout and status of current frame."
   (setq emacsctl--last-queried-windows
         (cl-loop for i from 1
                  for win in (window-list-1 nil t 'visible)
@@ -648,11 +792,16 @@ Copied from `marginalia--function-args', really thanks."
                               :buffer (buffer-name (window-buffer mini)))))))
 
 (defun emacsctl-select-window (index)
+  "Select window by INDEX returned by `emacsctl-query-window'."
   (select-window (cdr (assq index emacsctl--last-queried-windows)))
   (list :result :success
         :current-buffer (buffer-name (current-buffer))))
 
+
+;;; Kill Ring
+
 (defun emacsctl-query-kill-ring ()
+  "Get a brief view of `kill-ring'."
   (list :kill-ring-size (length kill-ring)
         :kills
         (cl-loop for i from 0
@@ -664,7 +813,14 @@ Copied from `marginalia--function-args', really thanks."
                                  :length (length str)
                                  :content str)))))
 
+
+;;; Environment inquiry
+
 (cl-defun emacsctl-search-symbol (match)
+  "Search symbol by MATCH.
+
+Match pattern will be breaked down by dashes and matched in
+substring.  Accurate query will get better detail."
   (cl-flet ((full-sym-info (sym &optional full-doc)
               `(
                 :name ,sym
@@ -729,6 +885,10 @@ Copied from `marginalia--function-args', really thanks."
       res)))
 
 (cl-defun emacsctl-search-command (match)
+  "Search command by MATCH.
+
+Match pattern will be breaked down by dashes and matched in
+substring.  Accurate query will get better detail."
   (cl-flet ((command-info (sym &optional full-doc)
               `(
                 :name ,sym
@@ -756,6 +916,10 @@ Copied from `marginalia--function-args', really thanks."
       res)))
 
 (cl-defun emacsctl-search-function (match)
+  "Search function by MATCH.
+
+Match pattern will be breaked down by dashes and matched in
+substring.  Accurate query will get better detail."
   (cl-flet ((func-info (sym &optional full-doc)
               `(
                 :name ,sym
@@ -787,6 +951,10 @@ Copied from `marginalia--function-args', really thanks."
       res)))
 
 (cl-defun emacsctl-search-variable (match)
+  "Search variable by MATCH.
+
+Match pattern will be breaked down by dashes and matched in
+substring.  Accurate query will get better detail."
   (cl-flet ((var-info (sym &optional full-doc)
               (let ((res (list :name sym))
                     (buf (current-buffer)))
@@ -819,7 +987,18 @@ Copied from `marginalia--function-args', really thanks."
                                                  emacsctl-too-many-symbols-limit)))))
       res)))
 
+
+;;; Insert and Replace
+
 (cl-defun emacsctl-insert (&key buffer position line column save-p text)
+  "Insert TEXT.
+
+BUFFER defaults to current buffer.
+
+Insert at POSITION, or LINE and COLUMN.  If neither is provided, insert
+at current point.
+
+Save the buffer after insertion if SAVE-P is true."
   (let* ((buffer (or buffer (buffer-name (current-buffer))))
          (buffer-exist-p (get-buffer buffer)))
     (with-current-buffer (get-buffer-create buffer)
@@ -855,6 +1034,15 @@ Copied from `marginalia--function-args', really thanks."
       (when save-p (save-buffer)))))
 
 (cl-defun emacsctl-replace (&key buffer start-line end-line start-position end-position save-p old-text new-text)
+  "Replace text.
+
+BUFFER defaults to current buffer.
+
+If OLD-TEXT is provided, replace the nearest occurrence of OLD-TEXT with
+NEW-TEXT.  Otherwise, replace the text in the region defined by
+START-LINE and END-LINE, or START-POSITION and END-POSITION.
+
+Save the buffer after replacement if SAVE-P is true."
   (let* ((buffer (or buffer (buffer-name (current-buffer))))
          (buffer-exist-p (get-buffer buffer))
          killed-length)
@@ -863,15 +1051,11 @@ Copied from `marginalia--function-args', really thanks."
         (let ((case-fold-search nil))
           (if old-text
               (progn
-                (setq killed-length (length old-text))
-                (if (search-forward old-text nil t)
-                  (progn (setq start-position (- (point) (length old-text)))
-                         (kill-region start-position (point))
-                         (insert new-text))
-                (search-backward old-text)
-                (setq start-position (point))
+                (setq killed-length (length old-text)
+                      start-position (emacsctl--search-nearest (point) old-text))
                 (kill-region start-position (+ start-position (length old-text)))
-                (insert new-text)))
+                (goto-char start-position)
+                (insert new-text))
             (when start-line
               (goto-char (point-min))
               (forward-line (1- start-line))
@@ -903,56 +1087,8 @@ Copied from `marginalia--function-args', really thanks."
         (goto-char start-position))
       (when save-p (save-buffer)))))
 
-(cl-defun emacsctl-grep (pattern &optional buffer)
-  "\(fn PATTERN &optional BUFFER)"
-  (when (not (stringp pattern))
-    (setq pattern (format "%s" pattern)))
-  (cond ((and buffer (null (get-buffer buffer)))
-         (cl-list* :error (format "Buffer %s not found." buffer)
-                   (when-let* ((suggest (emacsctl--fuzzy-match-buffer-names buffer)))
-                     (list :suggest-candidates (take emacsctl-max-suggest-candidate-number suggest)))))
-        (t (with-current-buffer (if buffer (get-buffer buffer) (current-buffer))
-             (save-excursion
-               (let* ((case-fold-search nil))
-                 (goto-char (point-min))
-                 (let ((lst (save-match-data
-                              (cl-loop while (re-search-forward pattern nil t)
-                                       collect `(
-                                                 :start-position ,(match-beginning 0)
-                                                 :end-position ,(match-end 0)
-                                                 ,@(let ((start-line (line-number-at-pos (match-beginning 0)))
-                                                         (end-line (line-number-at-pos (match-end 0))))
-                                                     (if (= start-line end-line)
-                                                         (list :line start-line)
-                                                       (list :start-line start-line
-                                                             :end-line end-line)))
-                                                 :matched ,(substring-no-properties (match-string 0))
-                                                 :surrounding ,(emacsctl--query-lines :start-pos (match-beginning 0)
-                                                                                      :end-pos (match-end 0)
-                                                                                      :show-point-p nil
-                                                                                      :show-mark-p nil
-                                                                                      :no-truncate-p t))))))
-                   `(
-                     :matched-number ,(length lst)
-                     ,@(when (> (length lst) emacsctl-too-many-grep-result-limit)
-                         (list :returned-number emacsctl-too-many-grep-result-limit
-                               :hint (format "Too many matches, only showing first %d. Please refine your query."
-                                             emacsctl-too-many-grep-result-limit)))
-                     :matches ,(take emacsctl-too-many-grep-result-limit lst)))))))))
-
 
-
-(defcustom emacsctl-eval-prohibit-symbols '()
-  "List of symbols that are prohibited in eval queries for security."
-  :type 'integer
-  :group 'emacsctl)
-
-(define-error 'emacsctl-eval-prohibited "Prohibited symbol in evaluation")
-
-(defcustom emacsctl-default-port 33865
-  "Default port for emacsctl server to listen on."
-  :type 'integer
-  :group 'emacsctl)
+;;; Connection and Safety
 
 (defvar emacsctl-server nil
   "The network process of emacsctl server.")
@@ -960,7 +1096,10 @@ Copied from `marginalia--function-args', really thanks."
 (defvar emacsctl-port nil
   "Port that emacsctl server current listening.")
 
+(define-error 'emacsctl-eval-prohibited "Prohibited symbol in evaluation")
+
 (defmacro emacsctl--with-condition-case (&rest body)
+  "Execute BODY, catch any error, return a data plist silently."
   `(condition-case e
        (progn ,@body)
      (error (list :error (car e)
@@ -975,6 +1114,19 @@ Copied from `marginalia--function-args', really thanks."
     (nreverse result)))
 
 (defun emacsctl--network-process-filter (proc string)
+  "Process filter for emacsctl network server.
+
+PROC is the process.  STRING is input.  Buffers the input and executes
+commands (eval, replace, insert).  The result is pprint and sent back to
+the client.
+
+Binary protocol:
+  Eval:
+    text-\4
+  Insert:
+    arglist-\23-text-\2
+  Replace:
+    arglist-\23-old-text-\23-new-text-\32"
   (let (eval-string
         replace-args replace-old-text replace-new-text
         insert-args insert-text)
@@ -1044,11 +1196,19 @@ Copied from `marginalia--function-args', really thanks."
                 (apply #'emacsctl-insert insert-args)))))))))
 
 (defun emacsctl--network-process-sentinel (proc event)
+  "Network process sentinel.
+
+PROC is the process.  EVENT is event string.  Kills the buffer associated
+with PROC when connection is closed."
   (let ((buf (get-buffer (concat " " (process-name proc)))))
     (when (and buf (buffer-live-p buf))
       (kill-buffer buf))))
 
 (cl-defun emacsctl--start (&key (host 'local) (service emacsctl-default-port) (coding 'utf-8))
+  "Start the emacsctl network server.
+
+HOST, SERVICE and CODING determine the connection port, binding address
+and string encoding."
   (setq emacsctl-server
         (make-network-process :name "emacsctl"
                               :buffer " *emacsctl-server*"
@@ -1060,8 +1220,9 @@ Copied from `marginalia--function-args', really thanks."
                               :sentinel #'emacsctl--network-process-sentinel)
         emacsctl-port (process-contact emacsctl-server :service)))
 
+;;;###autoload
 (define-minor-mode emacsctl-mode
-  "Minor mode for emacsctl."
+  "Minor mode for emacsctl.  ENABLE REMOTE CONTROL."
   :global t
   :lighter " Ectl"
   (if emacsctl-mode
@@ -1071,3 +1232,7 @@ Copied from `marginalia--function-args', really thanks."
         (delete-process emacsctl-server))
       (setq emacsctl-server nil
             emacsctl-port nil))))
+
+(provide 'emacsctl)
+
+;;; emacsctl.el ends here

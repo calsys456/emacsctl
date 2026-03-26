@@ -169,7 +169,7 @@ set +u
 
 PORT=33865
 WAIT=30
-CONN_FAULT='Cannot connect to Emacs. Ask user to setup Emacs first.'
+CONN_FAULT='Cannot connect to Emacs. Ask user to setup Emacs Control first.'
 
 PLIST="("
 REPLACE_RANGE=0

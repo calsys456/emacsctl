@@ -3,7 +3,7 @@ name: emacs-control
 description: Control Emacs. Search, edit, navigate, and pair programming with user
 ---
 
-# Emacs Controlling Skill
+# Emacs Control Skill
 
 Use `emacsctl` to interact with running Emacs.
 
@@ -38,6 +38,7 @@ echo '(emacs-version)' | emacsctl
 # => "GNU Emacs XX.X.XX"
 
 # Use HEREDOC for multi-line input or input with quote
+# Note that HEREDOC has trailing newline
 emacsctl <<EOF
 (defun multi-line-function ()
   (message "Hello my user")
@@ -46,6 +47,12 @@ emacsctl <<EOF
 EOF
 # => return-to-me
 ```
+
+*Be careful with interactive or blocking functions (like read-string, y-or-n-p) as they will hang.*
+
+*When mistake happened, suggest user to undo or revert. only undo in yourself (e.g. `emacsctl '(undo)'`) if nothing important or you are confident to do so.*
+
+**BE CAREFUL WHEN EVAL**
 
 ### Insert
 
@@ -111,6 +118,8 @@ Here is some specially designed ELisp functions for agent use, start with `emacs
 
 Use `(emacsctl-point-info &optional (surrounding 2))` and `(emacsctl-mark-info &optional (surrounding 2))` for information and surrounding contents for point and mark.
 
+The current point is marked out using "█" and current mark is using "▄".
+
 ### Buffer
 
 Use `(emacsctl-buffer-info &optional (buffer (current-buffer)))` for buffer state and metadata.
@@ -163,9 +172,4 @@ Pattern will be breaked down by dashes and matched in substring. Accurate query 
 
 ## Tips
 
-Typical edit workflow:
-
-- Overview: `(emacsctl-buffer-info)` and `(emacsctl-buffer-imenu)`
-- Search: `(emacsctl-grep <pattern>)`
-- Focus: `(emacsctl-read-buffer :line <line> :surrounding <number>)`
-- Insert or Replace: `emacsctl -i` or `emacsctl -r`
+The emacs-control skill is not for replacing other tool calls. Emacs is for bodied humans but not you. **Use other file-based tools for efficient work, and `emacsctl` only if it is really needed or user asked to.**

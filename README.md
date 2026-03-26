@@ -41,6 +41,10 @@ The `./emacs-control/emacsctl` CLI is generated using `./emacsctl.sh` with [geto
 gengetoptions embed ./emacsctl.sh >| ./emacs-control/emacsctl
 ```
 
+## License
+
+As the convention, `emacsctl.el` is published under GPLv3, other files are under MIT-0.
+
 ----------------
 Acknowledgements
 ----------------

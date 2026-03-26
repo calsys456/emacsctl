@@ -1,10 +1,20 @@
 # Emacs Control
 
+**THIS IS TOTALLY UNSAFE, STOP UNLESS YOU CLEARLY KNOW WHAT YOU ARE DOING!**
+
 Here we provide a simple and "a11y to bodiless soul" remote-control interface for Emacs. Suitable for AI agentic use.
 
 Skill folder included as `emacs-control/`, with `SKILL.md` and `emacsctl` CLI.
 
 Proudly vomit by the Calendrical System (us) :D
+
+## Safety notice
+
+First of all, **THIS IS TOTALLY UNSAFE.** In fact, nothing can be "safe" when any form of evaluation is involved in Lisp. Stop unless you clearly know what you are doing, and unless you are strong enough to take responsibility of any possible result.
+
+**IT'S NOT RECOMMEND TO USE THIS REPO UNLESS YOU ARE EXPERIENCED IN Emacs AND Lisp**
+
+There's `emacsctl-eval-prohibit-symbols` customizable variable in `emacsctl` package. It will try to prohibit access of certain symbols, but it cannot really prevent you from mistake or abuse.
 
 ## Installation
 

@@ -27,6 +27,8 @@ Options:
   -h, --help
 ```
 
+*`emacsctl` needs configure for both agent and Emacs side. Check https://github.com/calsys456/emacsctl for proper setup and notice user if possible when `emacsctl` not found or returned connection failure*
+
 ### Eval
 
 Basically, `emacsctl` retrieve a string of S-expressions, either from first argument or `stdin`, then `read` and `eval` them with `progn` inside Emacs, and print the return value of the last expression.
